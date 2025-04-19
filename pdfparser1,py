@@ -1,0 +1,53 @@
+from flask import Flask, request, jsonify
+from flask_pymongo import PyMongo
+import os
+import PyPDF2
+
+app = Flask(__name__)
+
+# MongoDB Configuration
+app.config["MONGO_URI"] = "mongodb://localhost:27017/ai_tutor"
+mongo = PyMongo(app)
+
+# Directory to store uploaded PDF files
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+@app.route('/upload', methods=['POST'])
+def upload_pdf():
+    if 'pdf' not in request.files:
+        return jsonify({"error": "No file uploaded."}), 400
+
+    file = request.files['pdf']
+    
+    if file.filename == '':
+        return jsonify({"error": "No file selected."}), 400
+
+    # Save the uploaded PDF file
+    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(file_path)
+
+    # Parse the PDF file
+    extracted_text = extract_text_from_pdf(file_path)
+
+    # Store extracted text in MongoDB
+    result = mongo.db.pdfs.insert_one({"text": extracted_text})
+
+    #delete the uploaded PDF file after processing
+    os.remove(file_path)
+
+    return jsonify({
+        "message": f"PDF uploaded and text stored with ID: {result.inserted_id}",
+        "extractedText": extracted_text
+    }), 200
+
+def extract_text_from_pdf(file_path):
+    text = ""
+    with open(file_path, 'rb') as file:
+        reader = PyPDF2.PdfReader(file)
+        for page in reader.pages:
+            text += page.extract_text() + "\n"
+    return text.strip()
+
+if __name__ == '__main__':
+    app.run(port=3000)
